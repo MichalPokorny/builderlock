@@ -69,11 +69,18 @@ func writeLockfile(lockfile Lockfile) {
 	}
 }
 
+func currentTimeString() string {
+	pragueTime, err := time.LoadLocation("Europe/Prague")
+	if err != nil {
+		panic(err)
+	}
+	return time.Now().In(pragueTime).String()
+}
+
 func statusResponse(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(res, "<!doctype html>\n")
 	fmt.Fprintf(res, "<html>\n")
 	fmt.Fprintf(res, "<body>\n")
-	fmt.Println(req.Method)
 
 	lockfile := getLockfile()
 
@@ -86,7 +93,7 @@ func statusResponse(res http.ResponseWriter, req *http.Request) {
 			} else {
 				lockfile.IsLocked = true
 				lockfile.HeldBy = req.PostFormValue("locker")
-				lockfile.ModificationTime = time.Now().String()
+				lockfile.ModificationTime = currentTimeString()
 				writeLockfile(lockfile)
 			}
 		case "release":
