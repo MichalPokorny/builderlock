@@ -7,6 +7,7 @@ import (
 	"time"
 	"io/ioutil"
 	"encoding/json"
+	"html/template"
 )
 
 func main() {
@@ -81,6 +82,10 @@ func currentTimeString() string {
 	return time.Now().In(pragueTime).String()
 }
 
+func isValidLocker(locker string) bool {
+	return len(locker) >= 1 && len(locker) <= 50;
+}
+
 func statusResponse(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(res, "<!doctype html>\n")
 	fmt.Fprintf(res, "<html>\n")
@@ -95,10 +100,15 @@ func statusResponse(res http.ResponseWriter, req *http.Request) {
 			if lockfile.IsLocked {
 				fmt.Fprintf(res, "cannot lock, sorry<br>\n")
 			} else {
-				lockfile.IsLocked = true
-				lockfile.HeldBy = req.PostFormValue("locker")
-				lockfile.ModificationTime = currentTimeString()
-				writeLockfile(lockfile)
+				locker := req.PostFormValue("locker")
+				if isValidLocker(locker) {
+					lockfile.IsLocked = true
+					lockfile.HeldBy = req.PostFormValue("locker")
+					lockfile.ModificationTime = currentTimeString()
+					writeLockfile(lockfile)
+				} else {
+					fmt.Fprintf(res, "you have terrible taste in names<br>\n")
+				}
 			}
 		case "release":
 			lockfile.IsLocked = false
@@ -107,12 +117,28 @@ func statusResponse(res http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if lockfile.IsLocked {
-		fmt.Fprintf(res, "<b>" + lockfile.HeldBy + "</b> has the lock since <b>" + lockfile.ModificationTime + "</b><br>\n")
-		fmt.Fprintf(res, "<form method='POST'><input type='hidden' name='operation' value='release'><input type='submit' value='release lock'></form>")
-	} else {
-		fmt.Fprintf(res, "unlocked right now, since " + lockfile.ModificationTime + "<br>\n")
-		fmt.Fprintf(res, "<form method='POST'><input type='hidden' name='operation' value='lock'><input type='text' name='locker' placeholder='My Glorious Name'><input type='submit' value='grab lock'></form>")
+	template, err := template.New("locked_greeting").Parse(
+		`{{define "LockStatusPage"}}
+			{{if .IsLocked}}
+				<b>{{.HeldBy}}</b> has the lock since <b>{{.ModificationTime}}</b><br>
+				<form method='POST'>
+					<input type='hidden' name='operation' value='release'>
+					<input type='submit' value='release lock'>
+				</form>
+			{{else}}
+				unlocked right now, since <b>{{.ModificationTime}}</b><br>
+				<form method='POST'>
+					<input type='hidden' name='operation' value='lock'>
+					<input type='text' name='locker' placeholder='My Glorious Name'>
+					<input type='submit' value='grab lock'>
+				</form>
+			{{end}}
+		{{end}}`)
+	if err != nil {
+		panic(err)
+	}
+	if err := template.ExecuteTemplate(res, "LockStatusPage", lockfile); err != nil {
+		panic(err)
 	}
 	fmt.Fprintf(res, "</body>\n")
 	fmt.Fprintf(res, "</html>\n")
