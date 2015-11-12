@@ -4,12 +4,22 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 	"io/ioutil"
+	"encoding/json"
 )
 
 func main() {
 	http.HandleFunc("/", statusResponse)
-	bind := fmt.Sprintf("%s:%s", os.Getenv("OPENSHIFT_GO_IP"), os.Getenv("OPENSHIFT_GO_PORT"))
+
+	ip := os.Getenv("OPENSHIFT_GO_IP")
+	port := os.Getenv("OPENSHIFT_GO_PORT")
+
+	if ip == "" || port == "" {
+		panic("Please set OPENSHIFT_GO_IP and OPENSHIFT_GO_PORT.")
+	}
+
+	bind := fmt.Sprintf("%s:%s", ip, port)
 	fmt.Printf("listening on %s...", bind)
 	err := http.ListenAndServe(bind, nil)
 	if err != nil {
@@ -17,55 +27,82 @@ func main() {
 	}
 }
 
+type Lockfile struct {
+	IsLocked bool `json:"is_locked"`
+	HeldBy string `json:"locker"`
+	ModificationTime string `json:"modification_time"`
+}
+
 func getLockfilePath() string {
 	return os.Getenv("OPENSHIFT_DATA_DIR") + "/lock";
 }
 
-// Returns empty string if not locked.
-func getLocker() string {
-	path := getLockfilePath();
+func getLockfile() Lockfile {
+	path := getLockfilePath()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Create new lockfile (by releasing the lock).
-		releaseLock()
+		return Lockfile{
+			IsLocked: false,
+			HeldBy: "",
+			ModificationTime: "",
+		};
 	}
 
 	chars, err := ioutil.ReadFile(path)
 	if err != nil {
 		panic(err)
 	}
-	return string(chars)
+	var lockfile Lockfile
+	if err := json.Unmarshal(chars, &lockfile); err != nil {
+		panic(err)
+	}
+	return lockfile
 }
 
-func grabLock(locker string) {
-	if err := ioutil.WriteFile(getLockfilePath(), []byte(locker), 0); err != nil {
+func writeLockfile(lockfile Lockfile) {
+	path := getLockfilePath()
+	bytes, err := json.Marshal(&lockfile)
+	if err != nil {
+		panic(err)
+	}
+	if err := ioutil.WriteFile(path, bytes, 0600); err != nil {
 		panic(err)
 	}
 }
 
-func releaseLock() {
-	if err := ioutil.WriteFile(getLockfilePath(), []byte(""), 0); err != nil {
-		panic(err);
-	}
-}
-
 func statusResponse(res http.ResponseWriter, req *http.Request) {
+	fmt.Fprintf(res, "<!doctype html>\n")
+	fmt.Fprintf(res, "<html>\n")
+	fmt.Fprintf(res, "<body>\n")
+	fmt.Println(req.Method)
+
+	lockfile := getLockfile()
+
 	switch req.Method {
-	case "PUT":
-		if getLocker() != "" {
-			fmt.Fprintf(res, "cannot lock, sorry<br>")
-		} else {
-			grabLock(req.PostFormValue("locker"))
+	case "POST":
+		switch req.PostFormValue("operation") {
+		case "lock":
+			if lockfile.IsLocked {
+				fmt.Fprintf(res, "cannot lock, sorry<br>\n")
+			} else {
+				lockfile.IsLocked = true
+				lockfile.HeldBy = req.PostFormValue("locker")
+				lockfile.ModificationTime = time.Now().String()
+				writeLockfile(lockfile)
+			}
+		case "release":
+			lockfile.IsLocked = false
+			lockfile.ModificationTime = time.Now().String()
+			writeLockfile(lockfile)
 		}
-	case "DELETE":
-		releaseLock()
 	}
 
-	locker := getLocker()
-	if locker == "" {
-		fmt.Fprintf(res, "unlocked right now<br>")
-		fmt.Fprintf(res, "<form action='/lock' method='put'><input type='text' name='locker' placeholder='My Glorious Name'><input type='submit' value='grab lock'></form>")
+	if lockfile.IsLocked {
+		fmt.Fprintf(res, "<b>" + lockfile.HeldBy + "</b> has the lock since <b>" + lockfile.ModificationTime + "</b><br>\n")
+		fmt.Fprintf(res, "<form method='POST'><input type='hidden' name='operation' value='release'><input type='submit' value='release lock'></form>")
 	} else {
-		fmt.Fprintf(res, "<b>" + locker + "</b> has the lock since<br>")
-		fmt.Fprintf(res, "<form action='/lock' method='delete'><input type='submit' value='release lock'></form>")
+		fmt.Fprintf(res, "unlocked right now, since " + lockfile.ModificationTime + "<br>\n")
+		fmt.Fprintf(res, "<form method='POST'><input type='hidden' name='operation' value='lock'><input type='text' name='locker' placeholder='My Glorious Name'><input type='submit' value='grab lock'></form>")
 	}
+	fmt.Fprintf(res, "</body>\n")
+	fmt.Fprintf(res, "</html>\n")
 }
