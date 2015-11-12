@@ -1,5 +1,12 @@
-OpenShift Go Cartridge
+builderlock
 ======================
+
+it locks the builder
+
+runs on RedHat OpenShift
+
+RedHat's README.md from the cartridge template
+------
 
 Runs [Go](http://golang.org) on [OpenShift](https://openshift.redhat.com/app/login) using downloadable cartridge support. 
 
