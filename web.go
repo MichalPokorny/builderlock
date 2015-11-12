@@ -19,6 +19,10 @@ func main() {
 		panic("Please set OPENSHIFT_GO_IP and OPENSHIFT_GO_PORT.")
 	}
 
+	if os.Getenv("OPENSHIFT_DATA_DIR") == "" {
+		panic("Please use OPENSHIFT_DATA_DIR.")
+	}
+
 	bind := fmt.Sprintf("%s:%s", ip, port)
 	fmt.Printf("listening on %s...", bind)
 	err := http.ListenAndServe(bind, nil)
