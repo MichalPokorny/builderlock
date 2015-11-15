@@ -112,7 +112,7 @@ func statusResponse(res http.ResponseWriter, req *http.Request) {
 			}
 		case "release":
 			lockfile.IsLocked = false
-			lockfile.ModificationTime = time.Now().String()
+			lockfile.ModificationTime = currentTimeString()
 			writeLockfile(lockfile)
 		}
 	}
